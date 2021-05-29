@@ -58,17 +58,16 @@ class OneHandDataloader(object):
 		"""
 
 		Args:
-			ds (TYPE, optional): DESCRIPTION. Defaults to None.
-			batch_size (TYPE, optional): DESCRIPTION. Defaults to None.
+			ds (tf.data, optional): DESCRIPTION. Defaults to None.
+			batch_size (int, optional): DESCRIPTION. Defaults to None.
 
 		Returns:
-			ds (TYPE): DESCRIPTION.
+			ds (tf.data): DESCRIPTION.
 
 		"""
 		AUTOTUNE = tf.data.AUTOTUNE
 
 		img_reader = image_reader(img_shape = img_shape, channels = channels)
-
 		ds = ds.map(img_reader, num_parallel_calls = AUTOTUNE)
 
 		if self.augment:
