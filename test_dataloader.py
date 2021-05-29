@@ -25,6 +25,7 @@ loader = OneHandDataloader(
     img_shape=IMG_SHAPE,
     augment=True,
     normalize=True,
+    crop=True,
 )
 
 
