@@ -72,10 +72,10 @@ val_loader = val_dataset.dataset_loader(mode="test")
 
 
 #%%
-# huber = Huber(delta=1.0)
+huber = Huber(delta=1.0)
 
-# model = A2J(input_shape=TARGET_SIZE + (3,), keys=21)
-# opt = Adam(lr=0.00035, beta_1=0.5)
+model = A2J(input_shape=TARGET_SIZE + (3,), keys=21)
+opt = Adam(lr=0.00035, beta_1=0.5)
 # # opt      = SGD(lr = initial_lr, momentum=0.9, nesterov=True, decay=1e-6)
 
 model.compile(optimizer=opt, loss=huber, metrics=["mae"])
