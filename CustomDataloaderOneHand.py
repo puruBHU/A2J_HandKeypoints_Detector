@@ -9,7 +9,7 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 
-from data_augmentor import *
+from ImageAndLabelAugmentor import *
 
 
 class OneHandDataloader(object):
@@ -20,20 +20,30 @@ class OneHandDataloader(object):
         img_shape=224,
         channels=3,
         datafile=None,
-        augment=True,
         normalize=True,
         shuffle=True,
         crop=False,
+        brightness=False,
+        hue=False,
+        saturation=False,
+        contrast=False,
+        horizontal_flip=False,
+        vertical_flip=False,
     ):
         self.root = root
         self.batch_size = batch_size
         self.img_shape = img_shape
         self.datafile = datafile
         self.channels = channels
-        self.augment = augment
         self.normalize = normalize
         self.shuffle = shuffle
         self.crop = crop
+        self.random_brightness = brightness
+        self.random_hue = hue
+        self.random_contrast = contrast
+        self.random_saturation = saturation
+        self.horizontal_flip = horizontal_flip
+        self.vertical_flip = vertical_flip
 
     def dataset_loader(self, mode="train"):
         img_source_path = self.root / mode.capitalize() / "source"
@@ -74,15 +84,38 @@ class OneHandDataloader(object):
 
         img_reader = image_reader(img_shape=img_shape, channels=channels, crop=crop)
         ds = ds.map(img_reader, num_parallel_calls=AUTOTUNE)
+        ds = ds.prefetch(AUTOTUNE)
 
-        if self.augment:
-            ds = ds.map(data_augmentation, num_parallel_calls=AUTOTUNE)
+        if self.horizontal_flip:
+            ds = ds.map(random_horizontal_flip, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
+
+        if self.vertical_flip:
+            ds = ds.map(random_vertical_flip, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
+
+        if self.random_brightness:
+            ds = ds.map(randomly_adjust_brightness, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
+
+        if self.random_hue:
+            ds = ds.map(randomly_adjust_hue, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
+
+        if self.random_saturation:
+            ds = ds.map(randomly_adjust_saturation, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
+
+        if self.random_contrast:
+            ds = ds.map(randomly_adjust_contrast, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
 
         if self.normalize:
             ds = ds.map(normalize_image, num_parallel_calls=AUTOTUNE)
+            ds = ds.prefetch(AUTOTUNE)
 
         if self.shuffle:
-            ds = ds.shuffle(1000)
+            ds = ds.shuffle(100)
 
         if batch_size is not None:
             ds = ds.batch(batch_size)
@@ -174,7 +207,7 @@ def image_reader(img_shape=(224, 224), channels=3, crop=False):
             img = tf.image.resize(
                 img_decoded, [img_shape[0], img_shape[1]], method="bilinear"
             )
-        return img, labels
+        return tf.cast(img, dtype=tf.uint8), labels
 
     return f
 
