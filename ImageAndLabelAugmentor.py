@@ -74,7 +74,7 @@ def randomly_adjust_contrast(image, label):
     uniform_random = tf.random.uniform([], 0, 1.0)
     cond = tf.less(uniform_random, 0.5)
     image = tf.cond(
-        cond, lambda: tf.image.random_brightness(image, 0.25), lambda: image
+        cond, lambda: tf.image.random_contrast(image, 0.25, 1.75), lambda: image
     )
     return image, label
 

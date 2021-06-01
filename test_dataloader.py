@@ -23,9 +23,14 @@ loader = OneHandDataloader(
     datafile=test_file,
     batch_size=BATCH_SIZE,
     img_shape=IMG_SHAPE,
-    augment=True,
     normalize=True,
     crop=True,
+    horizontal_flip=True,
+    vertical_flip=True,
+    brightness=True,
+    hue=True,
+    saturation=True,
+    contrast=True,
 )
 
 

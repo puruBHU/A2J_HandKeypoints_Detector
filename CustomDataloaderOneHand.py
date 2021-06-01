@@ -86,6 +86,9 @@ class OneHandDataloader(object):
         ds = ds.map(img_reader, num_parallel_calls=AUTOTUNE)
         ds = ds.prefetch(AUTOTUNE)
 
+        if self.shuffle:
+            ds = ds.shuffle(5000)
+
         if self.horizontal_flip:
             ds = ds.map(random_horizontal_flip, num_parallel_calls=AUTOTUNE)
             ds = ds.prefetch(AUTOTUNE)
@@ -113,9 +116,6 @@ class OneHandDataloader(object):
         if self.normalize:
             ds = ds.map(normalize_image, num_parallel_calls=AUTOTUNE)
             ds = ds.prefetch(AUTOTUNE)
-
-        if self.shuffle:
-            ds = ds.shuffle(100)
 
         if batch_size is not None:
             ds = ds.batch(batch_size)
