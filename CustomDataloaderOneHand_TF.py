@@ -9,254 +9,122 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 
-from ImageAndLabelAugmentor import *
+from CustomDataloaderOneHand_OpenCV import OneHandDataloader as LOADER
 
 
-class OneHandDataloader(object):
-    def __init__(
-        self,
-        root=None,
-        batch_size=1,
-        img_shape=224,
-        channels=3,
-        datafile=None,
+class OneHandDataloader(LOADER):
+    def __init__(self, *args, **kwargs):
+        super(OneHandDataloader, self).__init__(*args, **kwargs)
+
+    def image_reader(self, img_size=(224, 224)):
+        def f(filePath, labels):
+            channels = 3
+            img_string = tf.io.read_file(filePath)
+            img_decoded = tf.image.decode_jpeg(img_string, channels=channels)
+
+            if self.crop:
+                boxes, labels = tf.numpy_function(
+                    self.pyfunc_encode_labels, [labels], [tf.float32, tf.float32]
+                )
+
+                boxes = tf.reshape(boxes, (1, -1))
+
+                box_indices = tf.constant((0,), dtype=tf.int32)
+                crop_size = [img_size[0], img_size[1]]
+                img = tf.expand_dims(img_decoded, axis=0)
+                img = tf.image.crop_and_resize(img, boxes, box_indices, crop_size)
+                img = tf.squeeze(img, axis=0)
+
+            else:
+                img = tf.image.resize(
+                    img_decoded, [img_size[0], img_size[1]], method="bilinear"
+                )
+            return tf.cast(img, dtype=tf.uint8), labels
+
+        return f
+
+    def rescale_labels(self, keypoints=None, bndbox=None):
+        y_top, x_top, y_bot, x_bot = bndbox
+
+        keypoints = keypoints.reshape(-1, 2)
+
+        non_zero = np.nonzero(keypoints[:, 0])[0]
+
+        bndbox_w = x_bot - x_top
+        bndbox_h = y_bot - y_top
+
+        keypoints[non_zero, 0] -= x_top
+        keypoints[non_zero, 1] -= y_top
+
+        keypoints[non_zero, 0] /= bndbox_w
+        keypoints[non_zero, 1] /= bndbox_h
+
+        return keypoints
+
+    def get_bbox(self, keypoints=None):
+
+        keypoints = keypoints.reshape(-1, 2)  # shape: (21,2)
+        keypoints[keypoints < 0] = 0
+
+        x_values = keypoints[:, 0]
+        y_values = keypoints[:, 1]
+
+        # Non Zero Values X and Y keypoints values
+        x_non_zero = x_values[np.nonzero(x_values)[0]]
+        y_non_zero = y_values[np.nonzero(y_values)[0]]
+
+        # # These are offset values for extracted bounding box coordinates
+        nx = 0.05
+        ny = 0.05
+
+        xtop = max(min(x_non_zero) - nx, 0)
+        ytop = max(min(y_non_zero) - ny, 0)
+
+        xbot = min(max(x_non_zero) + nx, 0.99)
+        ybot = min(max(y_non_zero) + ny, 0.99)
+
+        return (ytop, xtop, ybot, xbot)
+
+
+#%%
+if __name__ == "__main__":
+    from pathlib import Path
+    from matplotlib import pyplot as plt
+    from skimage import io
+
+    root = Path(r"E:\Dataset\onehand10k")
+    test_file = Path.cwd() / "onehand10k_train_data.csv"
+
+    BATCH_SIZE = None
+    IMG_SHAPE = 224
+
+    loader = OneHandDataloader(
+        root=root,
+        mode="train",
+        datafile=test_file,
+        batch_size=BATCH_SIZE,
+        img_shape=IMG_SHAPE,
         normalize=True,
-        shuffle=True,
-        crop=False,
-        brightness=False,
-        hue=False,
-        saturation=False,
-        contrast=False,
-        horizontal_flip=False,
-        vertical_flip=False,
-    ):
-        self.root = root
-        self.batch_size = batch_size
-        self.img_shape = img_shape
-        self.datafile = datafile
-        self.channels = channels
-        self.normalize = normalize
-        self.shuffle = shuffle
-        self.crop = crop
-        self.random_brightness = brightness
-        self.random_hue = hue
-        self.random_contrast = contrast
-        self.random_saturation = saturation
-        self.horizontal_flip = horizontal_flip
-        self.vertical_flip = vertical_flip
+        crop=True,
+        horizontal_flip=True,
+        vertical_flip=True,
+        color_jitter=True,
+    )
 
-    def dataset_loader(self, mode="train"):
-        img_source_path = self.root / mode.capitalize() / "source"
-
-        df = pd.read_csv(self.datafile, header=None)
-        df[0] = df[0].map(lambda x: str(img_source_path.joinpath(x)))
-
-        data = df.to_numpy()
-
-        img_absolute_path = np.array(data[:, 0], dtype="str")
-        labels = np.array(data[:, 1:], dtype=np.float32)
-        labels = self.process_labels(labels)
-
-        dataset = tf.data.Dataset.from_tensor_slices((img_absolute_path, labels))
-        dataset = self.pipeline(
-            ds=dataset,
-            batch_size=self.batch_size,
-            img_shape=(self.img_shape,) * 2,
-            channels=self.channels,
-            crop=self.crop,
-        )
-        return dataset
-
-    def pipeline(
-        self, ds=None, batch_size=None, img_shape=(224, 224), channels=3, crop=False
-    ):
-        """
-
-        Args:
-            ds (tf.data, optional): DESCRIPTION. Defaults to None.
-            batch_size (int, optional): DESCRIPTION. Defaults to None.
-
-        Returns:
-            ds (tf.data): DESCRIPTION.
-
-        """
-        AUTOTUNE = tf.data.AUTOTUNE
-
-        img_reader = image_reader(img_shape=img_shape, channels=channels, crop=crop)
-        ds = ds.map(img_reader, num_parallel_calls=AUTOTUNE)
-        ds = ds.prefetch(AUTOTUNE)
-
-        if self.shuffle:
-            ds = ds.shuffle(5000)
-
-        if self.horizontal_flip:
-            ds = ds.map(random_horizontal_flip, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if self.vertical_flip:
-            ds = ds.map(random_vertical_flip, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if self.random_brightness:
-            ds = ds.map(randomly_adjust_brightness, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if self.random_hue:
-            ds = ds.map(randomly_adjust_hue, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if self.random_saturation:
-            ds = ds.map(randomly_adjust_saturation, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if self.random_contrast:
-            ds = ds.map(randomly_adjust_contrast, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if self.normalize:
-            ds = ds.map(normalize_image, num_parallel_calls=AUTOTUNE)
-            ds = ds.prefetch(AUTOTUNE)
-
-        if batch_size is not None:
-            ds = ds.batch(batch_size)
-
-        ds = ds.prefetch(AUTOTUNE)
-        return ds
-
-    def process_labels(self, label):
-        """
-
-        Args:
-            label (TYPE): DESCRIPTION.
-
-        Returns:
-            TYPE: DESCRIPTION.
-
-        """
-        N = len(label)
-        keypoints = []
-
-        for n in range(N):
-            lb = label[n]
-
-            width = lb[0]
-            height = lb[1]
-            keys = lb[3:].reshape(-1, 2)
-
-            # Normalize the x-coordinates
-            keys[:, 0] = keys[:, 0] / width
-
-            # Normalize the y-coordinates
-            keys[:, 1] = keys[:, 1] / height
-
-            keys[keys < 0] = -1
-            keypoints.append(keys)
-
-        return np.array(keypoints, dtype=np.float32)
-
-
-def data_augmentation(img, label):
-    if tf.random.uniform((1,), 0, 1) > 0.5:
-        img, label = horizontal_flip(img, label)
-
-    if tf.random.uniform((1,), 0, 1) > 0.5:
-        img, label = vertical_flip(img, label)
-
-    # if tf.random.uniform((1,), 0, 1) > 0.5:
-    #     img = adjust_gamma(img)
-
-    # img = color_augmentation(img)
-
-    return img, label
-
-
-def normalize_image(imgFile, labels):
-    """
-
-    Args:
-        imgFile (TYPE): DESCRIPTION.
-        labels (TYPE): DESCRIPTION.
-
-    Returns:
-        img (TYPE): DESCRIPTION.
-        labels (TYPE): DESCRIPTION.
-
-    """
-    img = tf.cast(imgFile, tf.float32)
-    img = tf.truediv(img, 255.0)
-
-    return img, labels
-
-
-def image_reader(img_shape=(224, 224), channels=3, crop=False):
-    def f(filePath, labels):
-        img_string = tf.io.read_file(filePath)
-        img_decoded = tf.image.decode_jpeg(img_string, channels=channels)
-
-        if crop:
-            boxes = tf.numpy_function(get_bbox, [labels], tf.float32)
-            boxes = tf.reshape(boxes, (1, -1))
-
-            box_indices = tf.constant((0,), dtype=tf.int32)
-            crop_size = [img_shape[0], img_shape[1]]
-            img = tf.expand_dims(img_decoded, axis=0)
-            img = tf.image.crop_and_resize(img, boxes, box_indices, crop_size)
-            img = tf.squeeze(img, axis=0)
-            labels = tf.numpy_function(label_encoder, [labels, boxes], tf.float32)
-        else:
-            img = tf.image.resize(
-                img_decoded, [img_shape[0], img_shape[1]], method="bilinear"
-            )
-        return tf.cast(img, dtype=tf.uint8), labels
-
-    return f
-
-
-def get_bbox(keypoints=None):
-
-    keypoints = keypoints.reshape(-1, 2)  # shape: (21,2)
-    keypoints[keypoints < 0] = 0
-
-    x_values = keypoints[:, 0]
-    y_values = keypoints[:, 1]
-
-    # Non Zero Values X and Y keypoints values
-    x_non_zero = x_values[np.nonzero(x_values)[0]]
-    y_non_zero = y_values[np.nonzero(y_values)[0]]
-
-    # # These are offset values for extracted bounding box coordinates
-    nx = 0.05
-    ny = 0.05
-
-    xtop = max(min(x_non_zero) - nx, 0)
-    ytop = max(min(y_non_zero) - ny, 0)
-
-    xbot = min(max(x_non_zero) + nx, 0.99)
-    ybot = min(max(y_non_zero) + ny, 0.99)
-
-    bbox_width = xbot - xtop
-    bbox_height = ybot - ytop
-
-    return tf.cast((ytop, xtop, ybot, xbot), tf.float32)
-
-
-def label_encoder(label=None, boxes=None):
-    boxes = tf.squeeze(boxes, axis=0)
-    y_top, x_top, y_bot, x_bot = boxes
-    label = label.reshape(-1, 2)
+    ds = loader.dataset_loader()
+    #%%
+    img, label = next(iter(ds))
+    img = img.numpy().astype(np.float32)
+    label = label.numpy()
     label[label < 0] = 0
+    x = label[:, 0]
+    y = label[:, 1]
 
-    non_zero_idx = np.nonzero(label[:, 0])[0]
+    x *= 224
+    y *= 224
 
-    box_width = x_bot - x_top
-    box_height = y_bot - y_top
+    # io.imshow(img)
 
-    label[non_zero_idx, 0] -= x_top
-    label[non_zero_idx, 1] -= y_top
-
-    label[non_zero_idx, 0] /= box_width
-    label[non_zero_idx, 1] /= box_height
-
-    label[label == 0] = -1
-
-    return label
+    plt.imshow(img.astype(np.float32))
+    plt.scatter(x, y, c="r")
+    plt.show()
