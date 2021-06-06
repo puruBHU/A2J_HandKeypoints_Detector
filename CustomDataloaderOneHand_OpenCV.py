@@ -153,7 +153,7 @@ class OneHandDataloader(object):
             ds = ds.map(self.normalize_image, num_parallel_calls=AUTOTUNE)
 
         if self.shuffle:
-            ds = ds.shuffle(100)
+            ds = ds.shuffle(1000)
 
         if self.batch_size is not None:
             ds = ds.batch(self.batch_size)
